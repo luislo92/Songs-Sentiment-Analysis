@@ -1,0 +1,22 @@
+devtools::install_github("josiahparry/genius", force=TRUE)
+
+library(genius)
+
+##Creating Lyrics
+create.lyrics<- function (x){
+my_vector <- vector("character",length = 0L)
+j1 <- which(tolower(colnames(x)) == "artist")
+j2 <- which(tolower(colnames(x)) == "song_title")
+for (i in 1:nrow(x)){
+lyrics<-try(as.data.frame(genius_lyrics(artist = (x[i,j1]), song = (x[i,j2]))),silent = T)
+if(inherits(lyrics, "try-error"))
+{
+  my_vector[i] = NA
+  next
+}
+lyrics<-lyrics[,"lyric"]
+lyrics<-paste(unlist(lyrics),collapse = " ")
+my_vector[i] = lyrics
+}
+return(my_vector)
+}
