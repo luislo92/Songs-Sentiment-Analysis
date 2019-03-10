@@ -1,4 +1,3 @@
-def createdf(song):
 ##Pulling from the API
     import spotipy
     import spotipy.util as util
@@ -8,7 +7,9 @@ def createdf(song):
     import json
     import pandas as pd
     from pandas.io.json import json_normalize
-
+    import numpy as np
+    
+def createdf(song):
 ##This includes most markets, feel free to add more if you know the abbreviation
     market = [ "AD", "AR", "AT", "AU", "BE", "BG", "BO", "BR", "CA", "CH", "CL", "CO", "CR", "CY", 
           "CZ", "DE", "DK", "DO", "EC", "EE", "ES", "FI", "FR", "GB", "GR", "GT", "HK", "HN", "HU", 
@@ -51,5 +52,5 @@ def createdf(song):
                 result.append("NA")
         df.loc[j] = result
         result = []
-    print("A Data Frame Called df has been created with the output:")
+    print("A data frame called df has been created with the output:")
     return(df)
