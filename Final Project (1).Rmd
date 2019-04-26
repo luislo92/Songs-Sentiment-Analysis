@@ -1,0 +1,765 @@
+---
+title: "APAN FRAMEWORKS II: Spotify Song Analysis"
+author: "Prepared by: Ergeta Muca, Luis Losada, Whitney Bitner"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+#devtools::install_github("juyeongkim/lastfmr", force=TRUE)
+
+library(sjPlot)
+library(prettydoc)
+library(data.table)
+library(tidyverse)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(lastfmr)
+library(genius)
+library(radarchart)
+library(DT)
+library(corrplot)
+library(ggplot2)
+library(cluster)
+library(ggthemes)
+library(gridExtra)
+library(caret)
+library(dplyr)
+library(glmnet)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+library(gbm)
+library(car)
+library(olsrr)
+library(nnet)
+library(RCurl)
+
+```
+
+```{r read data}
+spotify <- fread("/Users/luislosada/Columbia Drive/Frameworks Project/Report/final_spotify.csv", stringsAsFactors = T)
+```
+
+## Data Cleaning
+
+Here we have removed the non-ascii and special characters from the song_title and artist, and removed words that could confuse the Genius lyrics extraction method.
+
+```{r text cleaning, eval = FALSE}
+#remove non-ascii characters
+spotify$artist <- gsub("[^\x20-\x7E]", "", spotify$artist)
+spotify$song_title <- gsub("[^\x20-\x7E]", "", spotify$song_title)
+
+#remove special characters
+spotify$song_title <- gsub("[\\,.-/|']", "", spotify$song_title)
+spotify$artist <- gsub("[\\,-/.|']", "", spotify$artist)
+spotify$song_title = gsub("-.*","",spotify$song_title)
+spotify$song_title = sub(pattern = "’",replacement = "",x = spotify$song_title)
+spotify$song_title = gsub(pattern = "\\.",replacement = "",x = spotify$song_title)
+spotify$song_title = sub(pattern = "\\$",replacement = "S",x = spotify$song_title)
+spotify$artist = sub(pattern = "\\!",replacement = "",x = spotify$artist)
+spotify$artist = sub(pattern = "R3hab",replacement = "Rehab",x = spotify$artist)
+spotify$artist = gsub(pattern = "\\.",replacement = "",x = spotify$artist)
+spotify$artist = gsub("\\s*\\([^\\)]+\\)","",spotify$artist)
+spotify$artist = sub(pattern = "\\*",replacement = "",x = spotify$artist)
+
+#remove double quotes
+spotify$artist<- gsub("\"", "", spotify$artist)
+spotify$song_title<- gsub("\"", "", spotify$song_title)
+
+#remove everything within paranthesis (square or round)
+spotify$song_title<-str_replace(spotify$song_title, " \\(.*\\)", "")
+spotify$song_title<-str_replace(spotify$song_title, " \\[.*\\]", "")
+spotify$artist<-str_replace(spotify$artist, " \\(.*\\)", "")
+spotify$artist<-str_replace(spotify$artist, " \\[.*\\]", "")
+
+spotify$artist_test<-NULL
+#create vector of words to remove from song
+remove_words<-c("Remix","Original Mix"," 2000 Digital Remaster", "Explicit", "Original Club Mix","Original 12-Inch Mix", "Original 12'' Mix", "Club Mix", "Bonus Track", "Edit", "Edited", "Extended", "Version", 
+                "Single", "Remastered", "Album", "Soundtrack")
+
+#remove words from both fields
+spotify$song_title<-gsub(paste(remove_words, collapse="|"), "", spotify$song_title)
+spotify$artist<-gsub(paste(remove_words, collapse="|"), "", spotify$artist)
+
+#remove "-" and everything after
+spotify$song_title<-str_replace(spotify$song_title, "\\-.*", "")
+```
+
+We are now adding song lyrics to our dataset from the Genius lyrics package
+
+```{r adding and cleaning song lyrics, eval = FALSE}
+#adding song lyrics####
+
+devtools::install_github("josiahparry/genius", force=TRUE)
+
+##Creating Lyrics
+create.lyrics<- function (x){
+  my_vector <- vector("character",length = 0L)
+  j1 <- which(tolower(colnames(x)) == "artist")
+  j2 <- which(tolower(colnames(x)) == "song_title")
+  for (i in 1:nrow(x)){
+    lyrics<-try(as.data.frame(genius_lyrics(artist = (x[i,j1]), song = (x[i,j2]))),silent = T)
+    if(inherits(lyrics, "try-error"))
+    {
+      my_vector[i] = NA
+      next
+    }
+    lyrics<-lyrics[,"lyric"]
+    lyrics<-paste(unlist(lyrics),collapse = " ")
+    my_vector[i] = lyrics
+  }
+  return(my_vector)
+}
+
+songlyrics <- create.lyrics(x = spotify);head(song_titlelyrics)
+
+##song_titles or artist not Recognized
+sna<-which(is.na(songlyrics) == TRUE)
+tofix<-data.frame(song_title = spotify$song_title[sna],artist = spotify$artist[sna])
+head(tofix)
+
+tofix$song_title = gsub("\\s*\\([^\\)]+\\)","",as.character(tofix$song_title))
+tofix$song_title = gsub("-.*","",as.character(tofix$song_title))
+tofix$song_title = sub(pattern = "'",replacement = "",x = as.character(tofix$song_title))
+tofix$song_title = gsub("\\[.*?\\]+","",as.character(tofix$song_title))
+tofix$song_title = sub(pattern = "’",replacement = "",x = as.character(tofix$song_title))
+tofix$song_title = gsub(pattern = "\\.",replacement = "",x = as.character(tofix$song_title))
+tofix$song_title = sub(pattern = "\\$",replacement = "S",x = as.character(tofix$song_title))
+
+tofix$artist = sub(pattern = "\\$",replacement = "S",x = as.character(tofix$artist))
+tofix$artist = sub(pattern = "'",replacement = "",x = as.character(tofix$artist))
+tofix$artist = sub(pattern = "\\!",replacement = "",x = as.character(tofix$artist))
+tofix$artist = sub(pattern = "R3hab",replacement = "Rehab",x = as.character(tofix$artist))
+tofix$artist = gsub(pattern = "\\.",replacement = "",x = as.character(tofix$artist))
+tofix$artist = gsub("\\s*\\([^\\)]+\\)","",as.character(tofix$artist))
+tofix$artist = sub(pattern = "\\*",replacement = "",x = as.character(tofix$artist))
+
+fixedlyrics <- create.lyrics(x = tofix);head(fixedlyrics)
+
+flna<-which(is.na(fixedlyrics) == TRUE)
+sum(is.na(songlyrics)) - sum(is.na(fixedlyrics))
+
+songlyrics[sna]<-fixedlyrics
+
+spotify$song_lyrics<-songlyrics
+spotify[sna,c("song_title","artist")]<-tofix[,c("song_title","artist")]
+
+elmlyrics<-which(is.na(spotify$song_lyrics)==T)
+spotify<-spotify[-elmlyrics,]
+
+popularity <-fread('popularity.csv',stringsAsFactors = F)
+spotify <- cbind(id = popularity$id,spotify)
+spotify<- cbind(spotify, popularity = popularity$popularity)
+write_csv(spotify,'cleandata.csv')
+
+#adding more features - fm####
+devtools::install_github("juyeongkim/lastfmr", force=TRUE)
+
+Sys.setenv(lastfm_key = #unique fm_key)
+
+#turn to dataframe
+spotify.df<-as.data.frame(spotify)
+
+
+spotify.df2<-spotify.df[1:3,]
+
+song_info<- function (x){
+  my_vector <- vector("character",length = 0L)
+  j1 <- which(tolower(colnames(x)) == "artist")
+  j2 <- which(tolower(colnames(x)) == "song_title")
+  for (i in 1:nrow(x)){
+    song_detail<-try(as.data.frame(track_getInfo(artist = (x[i,j1]), track = (x[i,j2]))),silent = T)
+    if(inherits(song_detail, "try-error"))
+    {
+      my_vector[i] = NA
+      next
+    }
+    song_details_final<-song_detail[,c('listeners','playcount','toptags')]
+    #song_details_final<-song_detail[,'listeners']
+    song_details_final<-paste(unlist(song_details_final),collapse = ",")
+    my_vector[i] = song_details_final
+  }
+  return(my_vector)
+}
+
+trackdeets <- song_info(x = spotify.df2)
+
+trackdeets_2<- paste(trackdeets,collapse=" ")
+
+#add as new column to dataframe
+add_listeners<- function(x){
+  for (i in 1:nrow(x)){
+    spotify.df2<- spotify.df2%>%
+      rowwise %>%
+      mutate(trackdeets_2)%>%
+      separate(trackdeets_2, c('listeners', 'playcount','toptag1', 'toptag2', 'toptag3', 'toptag4', 'toptag5'), sep=" ", remove=TRUE, convert=TRUE)
+  }
+}
+
+final_deets<- add_listeners(x=spotify.df2)
+
+#adding lyric word count
+spotify$lyric_word_count <- sapply(spotify$song_lyrics, function(x) length(unlist(strsplit(as.character(x), " "))))
+```
+
+## Exploratory Analysis
+
+
+```{r correlations}
+attributes <- spotify[, c(3:15)]
+correlations <- cor(attributes)
+correlations
+corrplot(correlations)
+
+#energy and acousticness - negative
+#loudness & acousticness - negative
+#valence & danceability - positive
+#energy & loudness - positive
+#valence & energy - positive
+```
+
+```{r histograms}
+#comparisons between attributes and popularity
+
+p1<-ggplot(data = spotify, aes(x = popularity, y = danceability))+
+  geom_bar(stat = "identity")
+
+p2<-ggplot(data = spotify, aes(x = popularity, y = energy))+
+  geom_bar(stat = "identity")
+
+p3<-ggplot(data = spotify, aes(x = popularity, y = acousticness))+
+  geom_bar(stat = "identity")
+
+p4<-ggplot(data = spotify, aes(x = popularity, y = instrumentalness))+
+  geom_bar(stat = "identity")
+
+p5<-ggplot(data = spotify, aes(x = popularity, y = loudness))+
+  geom_bar(stat = "identity")
+
+p6<-ggplot(data = spotify, aes(x = popularity, y = tempo))+
+  geom_bar(stat = "identity")
+
+p7<-ggplot(data = spotify, aes(x = popularity, y = playcount))+
+  geom_bar(stat = "identity")
+
+grid.arrange(p1, p2,p3,p4,p5,p6,p7, nrow = 4)
+```
+
+As the attributes increase, popularity also increases until it hits a peak and then the attributes start negatively affecting popularity. 
+
+```{r facetwrap}
+spotify %>% select(listeners,acousticness,danceability,energy,instrumentalness,liveness,loudness,speechiness,tempo,time_signature,valence) %>% 
+  tidyr::gather() %>% 
+  ggplot(aes(x=value)) + geom_histogram() + 
+  facet_wrap(~key, scales='free', ncol=4)
+
+```
+
+```{r radarcharts}
+mean_features <- aggregate(spotify[, 3:15], by = list(spotify$artist) , mean, na.rm = T)
+mean_features_norm <- data.table(mean_features[1], apply(mean_features[-1],2, function(x){(x-min(x))/diff(range(x))}))
+
+#top genres by tag####
+
+ordered_by_popularity <- setorderv(x = spotify, cols = "popularity", order = -1)
+
+pop_genres1 <- setorderv(head(ordered_by_popularity[, .N, toptag1], n = 25), cols = "N", order = -1)
+pop_genres2 <- setorderv(head(ordered_by_popularity[, .N, toptag2], n = 25), cols = "N", order = -1)
+pop_genres3 <- setorderv(head(ordered_by_popularity[, .N, toptag3], n = 25), cols = "N", order = -1)
+pop_genres4 <- setorderv(head(ordered_by_popularity[, .N, toptag4], n = 25), cols = "N", order = -1)
+pop_genres5 <- setorderv(head(ordered_by_popularity[, .N, toptag5], n = 25), cols = "N", order = -1)
+
+#Most tagged genres: pop, electronic, Hip-Hop, indie, rock, dance
+
+#pop####
+genres1 <- ordered_by_popularity[,toptag1 == "pop", by = artist]
+#head(genres1[V1 == TRUE], n = 25)
+
+genres2 <- ordered_by_popularity[,toptag2 == "pop", by = artist]
+#head(genres2[V1 == TRUE], n = 25)
+
+genres3 <- ordered_by_popularity[,toptag3 == "pop", by = artist]
+#head(genres3[V1 == TRUE], n = 25)
+
+genres4 <- ordered_by_popularity[,toptag4 == "pop", by = artist]
+#head(genres4[V1 == TRUE], n = 25)
+
+genres5 <- ordered_by_popularity[,toptag5 == "pop", by = artist]
+#head(genres5[V1 == TRUE], n = 25)
+
+#pop artists - Katy Perry, Demi Lovato, Selena Gomez, Ed Sheeran, Jon McLaughlin, Britney Spears, The Chainsmokers, Rihanna, Shawn Mendes, Zedd, Maroon 5, Charlie Puth, Michael Jackson, 
+#Destinys Child, Miley Cyrus, Flo Rida, Imagine Dragons, OneRepublic, The Black Eyed Peas, Paramore, Drake, Harry Styles, Usher, David Guetta, Chris Brown
+
+#pop visualization
+pop_genre <- mean_features[mean_features$Group.1 %in% c("Katy Perry", "Demi Lovato", "Ed Sheeran", "Britney Spears", "The Chainsmokers", "Rihanna", "Shawn Mendes", "Charlie Puth", "Imagine Dragons", "OneRepublic"),]
+mean_features_norm_1 <- data.table(pop_genre[1], apply(pop_genre[-1],2, function(x){(x-min(x)) / diff(range(x))})) 
+radarDF_1 <- gather(mean_features_norm_1, key=Attribute, value=Score, -Group.1) %>%
+  spread(key=Group.1, value=Score)
+
+chartJSRadar(scores = radarDF_1, scaleStartValue = -1, maxScale =1, showToolTipLabel = TRUE)
+
+#electronic####
+genres1 <- ordered_by_popularity[,toptag1 == "electronic", by = artist]
+#head(genres1[V1 == TRUE], n = 25)
+
+genres2 <- ordered_by_popularity[,toptag2 == "electronic", by = artist]
+#head(genres2[V1 == TRUE], n = 25)
+
+genres3 <- ordered_by_popularity[,toptag3 == "electronic", by = artist]
+#head(genres3[V1 == TRUE], n = 25)
+
+genres4 <- ordered_by_popularity[,toptag4 == "electronic", by = artist]
+#head(genres4[V1 == TRUE], n = 25)
+
+genres5 <- ordered_by_popularity[,toptag5 == "electronic", by = artist]
+#head(genres5[V1 == TRUE], n = 25)
+
+#electronic artists - DJ Snake, ZHU, The Chainsmokers, CHVRCHES, Disclosure, Fall Out Boy, ODESZA, Grimes, Daft Punk, Skrillex, Halsey, Alesso, Anne-Marie, 
+#Chromeo, Kygo, David Guetta, Hailee Steinfeld
+
+#electronic visualization
+electronic_genre <- mean_features[mean_features$Group.1 %in% c("DJ Snake", "The Chainsmokers", "Disclosure", "ODESZA", "Halsey", "Alesso", "Chromeo", "Kygo", "David Guetta", "Hailee Steinfeld"),]
+mean_features_norm_2 <- data.table(electronic_genre[1], apply(electronic_genre[-1],2, function(x){(x-min(x)) / diff(range(x))})) 
+radarDF_2 <- gather(mean_features_norm_2, key=Attribute, value=Score, -Group.1) %>%
+  spread(key=Group.1, value=Score)
+
+chartJSRadar(scores = radarDF_2, scaleStartValue = -1, maxScale =1, showToolTipLabel = TRUE)
+
+#rock####
+
+genres1 <- ordered_by_popularity[,toptag1 == "rock", by = artist]
+#head(genres1[V1 == TRUE], n = 25)
+
+genres2 <- ordered_by_popularity[,toptag2 == "rock", by = artist]
+#head(genres2[V1 == TRUE], n = 25)
+
+genres3 <- ordered_by_popularity[,toptag3 == "rock", by = artist]
+#head(genres3[V1 == TRUE], n = 25)
+
+genres4 <- ordered_by_popularity[,toptag4 == "rock", by = artist]
+#head(genres4[V1 == TRUE], n = 25)
+
+genres5 <- ordered_by_popularity[,toptag5 == "rock", by = artist]
+#head(genres5[V1 == TRUE], n = 25)
+
+#rock artists - Nickelback, Incubus, Mac Demarco, Fall Out Boy, David Bowie, Santana, Queen, Third Eye Blind, The Offspring, The Black Keys, Pearl Jam, WALK THE MOON, 
+#Tame Impala, Violent Femmes, The Killers, Arctic Monkeys, Beastie Boys, Arcade Fire
+
+#rock visualization
+rock_genre <- mean_features[mean_features$Group.1 %in% c("Fall Out Boy", "Queen", "Santana", "Third Eye Blind", "The Offspring", "The Black Keys", "Pearl Jam", "Violent Femmes", "Beastie Boys", "Arcade Fire"),]
+mean_features_norm_3 <- data.table(rock_genre[1], apply(rock_genre[-1],2, function(x){(x-min(x)) / diff(range(x))})) 
+radarDF_3 <- gather(mean_features_norm_3, key=Attribute, value=Score, -Group.1) %>%
+  spread(key=Group.1, value=Score)
+
+chartJSRadar(scores = radarDF_3, scaleStartValue = -1, maxScale =1, showToolTipLabel = TRUE)
+
+#hip-hop####
+
+genres1 <- ordered_by_popularity[,toptag1 == "Hip-Hop", by = artist]
+#head(genres1[V1 == TRUE], n = 25)
+
+genres2 <- ordered_by_popularity[,toptag2 == "Hip-Hop", by = artist]
+#head(genres2[V1 == TRUE], n = 25)
+
+genres3 <- ordered_by_popularity[,toptag3 == "Hip-Hop", by = artist]
+#head(genres3[V1 == TRUE], n = 25)
+
+genres4 <- ordered_by_popularity[,toptag4 == "Hip-Hop", by = artist]
+#head(genres4[V1 == TRUE], n = 25)
+
+genres5 <- ordered_by_popularity[,toptag5 == "Hip-Hop", by = artist]
+#head(genres5[V1 == TRUE], n = 25)
+
+#Hip-Hop Artists - Kendrick Lamar, Rae Sremmurd, Kanye West, J.Cole, DJ Khaled, Future, Drake, G-Eazy, Young Thug, Fetty Wap, Eminem, Travis Scott, 21 Savage, 
+#ScHoolboy Q, Lil Wayne, Rick Ross, A$AP Ferg
+
+#hip-hop visualization
+hip_hop_genre <- mean_features[mean_features$Group.1 %in% c("Kendrick Lamar", "Rae Sremmurd", "Kanye West", "J.Cole", "DJ Khaled", "Future", "Drake", "G-Eazy", "Young Thug", "Eminem"),]
+mean_features_norm_4 <- data.table(hip_hop_genre[1], apply(hip_hop_genre[-1],2, function(x){(x-min(x)) / diff(range(x))})) 
+radarDF_4 <- gather(mean_features_norm_4, key=Attribute, value=Score, -Group.1) %>%
+  spread(key=Group.1, value=Score)
+
+chartJSRadar(scores = radarDF_4, scaleStartValue = -1, maxScale =1, showToolTipLabel = TRUE)
+
+#indie####
+genres1 <- ordered_by_popularity[,toptag1 == "indie", by = artist]
+#head(genres1[V1 == TRUE], n = 25)
+
+genres2 <- ordered_by_popularity[,toptag2 == "indie", by = artist]
+#head(genres2[V1 == TRUE], n = 25)
+
+genres3 <- ordered_by_popularity[,toptag3 == "indie", by = artist]
+#head(genres3[V1 == TRUE], n = 25)
+
+genres4 <- ordered_by_popularity[,toptag4 == "indie", by = artist]
+#head(genres4[V1 == TRUE], n = 25)
+
+genres5 <- ordered_by_popularity[,toptag5 == "indie", by = artist]
+#head(genres5[V1 == TRUE], n = 25)
+
+#indie artists - HAIM, The xx, WALK THE MOON, The Neighbourhood, Lord Huron, The War on Drugs, Radiohead, Vampire Weekend, Phantogram, M83, The Killers, 
+#Tame Impala, Beach House, Santigold, CHVRCHES, Incubus
+
+#indie visualization
+indie_genre <- mean_features[mean_features$Group.1 %in% c("HAIM", "The xx", "WALK THE MOON", "The Neighbourhood", "Lord Huron", "Radiohead", "Vampire Weekend", "Phantogram", "M83", "Santigold"),]
+mean_features_norm_5 <- data.table(indie_genre[1], apply(indie_genre[-1],2, function(x){(x-min(x)) / diff(range(x))})) 
+radarDF_5 <- gather(mean_features_norm_5, key=Attribute, value=Score, -Group.1) %>%
+  spread(key=Group.1, value=Score)
+
+chartJSRadar(scores = radarDF_5, scaleStartValue = -1, maxScale =1, showToolTipLabel = TRUE)
+
+#dance####
+
+genres1 <- ordered_by_popularity[,toptag1 == "dance", by = artist]
+#head(genres1[V1 == TRUE], n = 25)
+
+genres2 <- ordered_by_popularity[,toptag2 == "dance", by = artist]
+#head(genres2[V1 == TRUE], n = 25)
+
+genres3 <- ordered_by_popularity[,toptag3 == "dance", by = artist]
+#head(genres3[V1 == TRUE], n = 25)
+
+genres4 <- ordered_by_popularity[,toptag4 == "dance", by = artist]
+#head(genres4[V1 == TRUE], n = 25)
+
+genres5 <- ordered_by_popularity[,toptag5 == "dance", by = artist]
+#head(genres5[V1 == TRUE], n = 25)
+
+#dance artists - Mike Posner, Kesha, Taio Cruz, Robin Thicke, David Guetta, Avicii, DJ Snake, Zedd, Lady Gaga, Cher, Alesso, 
+#Calvin Harris, Nicki Minaj, Spice Girls, Shakira, Chris Brown, Britney Spears, Daft Punk  
+
+dance_genre <- mean_features[mean_features$Group.1 %in% c("Kesha", "Taio Cruz", "Robin Thicke", "David Guetta", "Avicii", "DJ Snake", "Zedd", "Calvin Harris", "Nicki Minaj", "Shakira"),]
+mean_features_norm_6 <- data.table(dance_genre[1], apply(dance_genre[-1],2, function(x){(x-min(x)) / diff(range(x))})) 
+radarDF_6 <- gather(mean_features_norm_6, key=Attribute, value=Score, -Group.1) %>%
+  spread(key=Group.1, value=Score)
+
+chartJSRadar(scores = radarDF_6, scaleStartValue = -1, maxScale =1, showToolTipLabel = TRUE)
+
+```
+
+##Feature Engineering
+
+```{r clustering}
+data <- fread("/Users/luislosada/Columbia Drive/Frameworks Project/Feature Engineering/vector_of_words.csv")
+#run total within sum of squares for 1-10 clusters
+data_x <- data[, 1:2]
+within_ss=sapply(1:10, FUN=function(x) kmeans(x=data_x, centers=x, iter.max=1000, nstart=20)$tot.withinss)
+ggplot(data=data.frame(cluster=1:10, within_ss), aes(x=cluster, y=within_ss))+
+  geom_line(col='red', size=1.4)+
+  geom_point()+
+  scale_x_continuous(breaks=seq(1,10,1))
+
+#ratio plot
+ratio_ss = sapply(1:10,FUN = function(c) {km = kmeans(x = data_x,centers = c,iter.max = 1000,nstart = 20)
+km$betweenss/km$totss} )
+ggplot(data=data.frame(cluster = 1:10,ratio_ss),aes(x=cluster,y=ratio_ss))+
+  geom_line(col='red',size=1.4)+
+  geom_point()+
+  scale_x_continuous(breaks=seq(1,10,1))
+
+#silhouette plot
+#silhoette_width = sapply(2:10,FUN = function(x) pam(x = data_x,k = x)$silinfo$avg.width)
+#ggplot(data=data.frame(cluster = 2:10,silhoette_width),aes(x=cluster,y=silhoette_width))+
+  #geom_line(col='red',size=1.4)+
+  #geom_point()+
+  #scale_x_continuous(breaks=seq(2,10,1))
+
+#The silhouette shows that k = 4 is the optimal amount of clusters, but it takes a long time to run 
+
+#run kmeans on n clusters
+set.seed(20)
+data_cluster<-kmeans(data_x, 5, nstart=10)
+
+#visualize n clusters
+label_500<- as.character(data[1:500,]$V3)
+label_500[(501):nrow(data)] <- rep("", (nrow(data)-500))
+
+orig_plot<-ggplot(data, aes(V1, V2, color=as.factor(data_cluster$cluster)))+geom_point()+guides(color=guide_legend("labels"))
+
+orig_plot+annotate("text", x = data$V1, y=data$V2, hjust = 0,
+           label=label_500, color="black",size = 1)+
+          annotate("text", x=-40, y=40,label='atop(bold("International"))',parse =T)+
+          annotate("text", x=20, y=20, label='atop(bold("Adventurous"))',parse =T)+
+          annotate("text", x=50, y=10, label='atop(bold("Sorrow"))',parse =T)+
+          annotate("text", x=20, y=-40, label='atop(bold("Romantic"))',parse =T)+
+          annotate("text", x=-30, y=-20,label='atop(bold("Slangy/Modern"))',parse =T)
+
+k_segments = data_cluster$cluster
+table(k_segments)
+
+data_2<-cbind(data, cluster = k_segments)
+
+```
+
+```{r sentiment, eval = FALSE}
+
+lyrics_tokenized = read.csv("/Users/luislosada/Columbia Drive/Frameworks Project/Feature Engineering/tokenized_lyrics.csv", header=T, stringsAsFactors = F)
+#this csv comes from a Python script using Python libraries
+lyrics_tokenized[is.na(lyrics_tokenized)]<-"absNone"
+df_cluster <- function(words,data){
+w<-as.character(words)
+d<-data$labels
+df<-data.frame()
+words_in_lyrics = vector()
+cluster_of_word =vector()
+for (i in 1:NROW(d)){
+    for (j in 1:length(w)){
+      if (w[j] == d[i]){
+        cluster_of_word[j]<-data$cluster[i]
+      }
+    }
+df<-cluster_of_word
+}
+return(df)
+}
+
+df_cluster_f <- cmpfun(df_cluster) #byte compiler to make it run a bit faster
+#clustertest <- df_cluster(lyrics_tokenized[,41],data_2) ##test it out
+#p<-prop.table(table(clustertest$cluster_of_word))
+
+categories<- function (songs,cdata){
+  song_sentiment<-vector()
+  for (i in 1:length(songs)) {
+    pre<-df_cluster_f(songs[,i],cdata)
+    prop<-prop.table(table(pre))
+    ifelse(test = length(prop)>0,yes = presentiment<-which.max(prop),no = presentiment<-c(0))
+    if (presentiment == 1){
+          sentiment<-c("Sorrow")
+          }else if (presentiment == 2){
+            sentiment<-c("Romantic")
+          }else if (presentiment == 3){
+            sentiment<-c("Happy/International")
+          }else if (presentiment == 4){
+            sentiment<-c("Slangy/Modern")
+          }else if (presentiment == 5){
+            sentiment<-c("Adventure")
+          }else {
+            sentiment<-NA
+          }
+    song_sentiment[i]<-sentiment
+  }
+return(song_sentiment)
+  }
+
+categories_f <- cmpfun(categories) #byte compiler to make it run a bit faster
+cat<-categories_f(lyrics_tokenized,data_2)
+spotify <- cbind(spotify,lyric_sentiment = cat)
+
+```
+
+##Modeling
+
+```{r}
+
+#Split the data for modeling
+mod_data = select(spotify,-id,-artist,-song_title,-song_lyrics,-toptag1,-toptag2,-toptag3,-toptag4,-toptag5,-target)
+mod_data<-na.omit(mod_data)
+split = sample(1:nrow(mod_data), nrow(mod_data)*0.70)
+train = mod_data[split,]
+test = mod_data[-split,]
+```
+
+```{r}
+#BASELINE LINEAR MODEL
+Linear_model = lm(popularity~.,data = train)
+summary(Linear_model)
+
+predlm = predict(Linear_model,newdata = test)
+rmselm = sqrt(mean((predlm-test$popularity)^2)); #rmselm
+
+# Linear Model performance
+rmse_r2_lm=data.frame(
+  RMSE = RMSE(predlm, test$popularity),
+  R2 = R2(predlm, test$popularity)
+)
+
+#Check for multicollinearity
+vif(Linear_model)
+
+#SjPlots for Linear_model
+plot_model(Linear_model)
+plot_model(Linear_model, type="slope")
+
+#listeners and playcount seem problematic, remove playcount
+
+#create new linear model without playcount
+Linear_model_2 <- lm(popularity ~.-playcount, data = train)
+summary(Linear_model_2)
+
+predlm2=predict(Linear_model_2,newdata=test)
+rmselm2 = sqrt(mean((predlm2-test$popularity)^2)); #rmselm2
+
+#performance for lm2
+rmse_r2_lm2=data.frame(
+  RMSE = RMSE(predlm2, test$popularity),
+  R2 = R2(predlm2, test$popularity)
+)
+
+
+
+```
+
+```{r}
+##FEATURE SELECTION##
+
+#FORWARD STEPWISE MODEL
+fwd<-ols_step_forward_p(Linear_model_2)
+
+#plot fwd results
+plot(fwd)
+
+#BACKWARD STEPWISE MODEL
+bwd<-ols_step_backward_p(Linear_model_2)
+
+#plot bwd results
+plot(bwd)
+
+#HYBRID STEPWISE MODEL
+hyb<-ols_step_both_p(Linear_model_2)
+
+#plot hyb results
+plot(hyb)
+
+#STEPWISE AIC MODEL
+aic_both<-ols_step_both_aic(Linear_model_2)
+
+#plot aic_fwd results
+plot(aic_both)
+```
+
+```{r}
+#RANDOM FOREST MODEL
+
+#parameter tuning
+trControl=trainControl(method="cv",number=10)
+tuneGrid = expand.grid(mtry=1:17)
+set.seed(100)
+cvForest = train(popularity~. -playcount,data=train,
+                 method="rf",ntree=100,trControl=trControl,tuneGrid=tuneGrid ) 
+#cvForest
+
+#random forest model with mtry from optimal tuning
+set.seed(100)
+rfmodel = randomForest(popularity~.-playcount,data=train,mtry = 4 ,ntree=100)
+
+#predict on test
+predrfmodel = predict(rfmodel,newdata=test,type = "response");
+rmserf = sqrt(mean((predrfmodel-test$popularity)^2)); 
+#rmserf
+
+#plot variable importance
+varImpPlot(rfmodel)
+
+#Tuning for only top 7 selected variables from stepwise functions
+trControl=trainControl(method="cv",number=10)
+tuneGrid = expand.grid(mtry=1:7)
+set.seed(100)
+cvForest1 = train(popularity~listeners + lyric_word_count+ instrumentalness + liveness + duration_ms + loudness + energy,data=train,method="rf",ntree=100,trControl=trControl,tuneGrid=tuneGrid )
+#cvForest1
+
+#rfmodel1
+set.seed(100)
+rfmodel1 = randomForest(popularity~listeners + lyric_word_count+ instrumentalness + liveness + duration_ms + loudness + energy,data=train,mtry = 2 ,ntree=500)
+
+predrfmodel1 = predict(rfmodel1,newdata=test,type = "response");
+rmserf1 = sqrt(mean((predrfmodel1-test$popularity)^2))
+#rmserf1
+
+
+#Tuning for only top 8 selected variables from randomforest optimal tuning
+trControl=trainControl(method="cv",number=10)
+tuneGrid = expand.grid(mtry=1:7)
+set.seed(100)
+cvForest2 = train(popularity~listeners + lyric_word_count + duration_ms+ loudness + liveness + loudness + energy+valence,data=train,method="rf",ntree=100,trControl=trControl,tuneGrid=tuneGrid )
+#cvForest2
+
+#rfmodel2
+set.seed(100)
+rfmodel2 = randomForest(popularity~listeners + lyric_word_count+ instrumentalness + liveness + duration_ms + loudness + tempo+acousticness,data=train,mtry = 2 ,ntree=500)
+
+predrfmodel2 = predict(rfmodel2,newdata=test,type = "response")
+rmserf2 = sqrt(mean((predrfmodel1-test$popularity)^2)); #rmserf2
+
+```
+
+```{r}
+#BOOSTING MODEL
+
+#boosting with all variables
+boost = gbm(popularity~.-playcount,data=train,distribution="gaussian",n.trees = 100000,interaction.depth = 3,shrinkage = 0.001,keep.data = TRUE)
+
+predb = predict(boost,test,n.trees=100000)
+rmseBoost = sqrt(mean((predb-test$popularity)^2)); #rmseBoost
+
+#boosting with only top 8 variables
+boost2 = gbm(popularity~listeners + lyric_word_count+ instrumentalness + liveness + duration_ms + loudness + energy,data=train,distribution="gaussian",n.trees = 100000,interaction.depth = 3,shrinkage = 0.001,keep.data = TRUE)
+
+predb2 = predict(boost2,test,n.trees=100000)
+rmseBoost2 = sqrt(mean((predb-test$popularity)^2)) 
+#rmseBoost2
+
+```
+
+```{r}
+#NEURAL NETWORK#
+
+#parameter tuning for neural network
+mygrid <- expand.grid(.decay=c(0.5, 0.1), .size=c(4,5,6))
+
+nnet.fit <- train(popularity ~.-playcount, data=mod_data, method="nnet", maxit=1000, tuneGrid=mygrid, trace=F)
+print(nnet.fit)
+
+#run model with optimal size=6 and decay=0.1
+set.seed(100)
+#first nn model with all variables
+nn_1<-nnet(popularity~.-playcount, data=train, size=6, decay=0.1, maxit = 1000, linout=T, skip=T)
+
+pred_nn1<-predict(nn_1, test)
+rmse_nn1 = sqrt(mean((pred_nn1-test$popularity)^2)); rmse_nn1
+
+#second nn model with top 7 variables
+nn_2<-nnet(popularity~listeners + lyric_word_count+ instrumentalness + liveness + duration_ms + loudness + energy, data=train, size=6, decay=0.1, maxit = 1000, linout=T, skip=T)
+
+pred_nn2<-predict(nn_2, test)
+rmse_nn2 = sqrt(mean((pred_nn2-test$popularity)^2)); rmse_nn2
+```
+```{r}
+#VISUALIZING THE NEURAL NETWORKS
+#import function from Github
+require(RCurl)
+
+ 
+root.url<-'https://gist.githubusercontent.com/fawda123'
+raw.fun<-paste(
+  root.url,
+  '5086859/raw/cc1544804d5027d82b70e74b83b3941cd2184354/nnet_plot_fun.r',
+  sep='/'
+  )
+script<-getURL(raw.fun, ssl.verifypeer = FALSE)
+eval(parse(text = script))
+rm('script','raw.fun')
+
+#plotting nns
+#plot(nn_1)
+plot(nn_2)
+```
+
+```{r}
+#CREATE TABLE OF ALL MODELS AND THEIR PERFORMANCE
+model_results<-data.frame(Model=c("Baseline Linear Model","Linear Model with Top Variables", "Random Forest with all variables", "Random Forest with top variables from stepwise", "Random Forest with Top Variables from VImp", "Boosting with all variables", "Boosting with Top Variables", "Neural network with all variables", "Neural network with top variables"), 
+RMSE= c(rmselm, rmselm2, rmserf, rmserf1, rmserf2, rmseBoost, rmseBoost2, rmse_nn1, rmse_nn2))
+
+model_results
+```
+
+
+
