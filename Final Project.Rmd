@@ -737,7 +737,6 @@ rmse_nn2 = sqrt(mean((pred_nn2-test$popularity)^2)); rmse_nn2
 #import function from Github
 require(RCurl)
 
- 
 root.url<-'https://gist.githubusercontent.com/fawda123'
 raw.fun<-paste(
   root.url,
@@ -757,7 +756,6 @@ plot(nn_2)
 #CREATE TABLE OF ALL MODELS AND THEIR PERFORMANCE
 model_results<-data.frame(Model=c("Baseline Linear Model","Linear Model with Top Variables", "Random Forest with all variables", "Random Forest with top variables from stepwise", "Random Forest with Top Variables from VImp", "Boosting with all variables", "Boosting with Top Variables", "Neural network with all variables", "Neural network with top variables"), 
 RMSE= c(rmselm, rmselm2, rmserf, rmserf1, rmserf2, rmseBoost, rmseBoost2, rmse_nn1, rmse_nn2))
-
 model_results
 ```
 
