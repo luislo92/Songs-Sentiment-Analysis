@@ -8,6 +8,7 @@ string = open("all_lyrics.txt").read()
 new_str = re.sub(r'[\(\)]', '', str(string)) #remove punctuation
 lyrics = new_str.lower()
 
+##Python script to prepare the song lyrics for the fasttext modelling. It includes word tokenization and normalization.
 
 ## Tokenizing and Normalzing Lyrics
 
