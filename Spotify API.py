@@ -23,8 +23,8 @@ def createdf(song):
           "NO", "NZ", "PA", "PE", "PH", "PL", "PT", "PY", "SE", "SG", "SK", "SV", "TH", "TR", "TW", 
           "US", "UY", "VN" ]
 ##Set up your client ID and Client Secret    
-    CLIENT_ID = "33a602d7e56540d3af86373bcba237af"
-    CLIENT_SECRET = "6d36561d42694d8c8747079b156e15cb"
+    CLIENT_ID = "YOUR CLIENT ID"
+    CLIENT_SECRET = "YOUR CLIENT SECRET"
     
     credentials = oauth2.SpotifyClientCredentials(
             client_id=CLIENT_ID,
@@ -66,4 +66,4 @@ os.chdir('/Users/luislosada/Columbia Drive/Frameworks II/Group Assignment')
 spotify  = pd.read_csv('cleandata.csv')
 
 popularity = createdf(song = list(spotify['song_title']))
-popularity.to_csv(r'/Users/luislosada/Columbia Drive/Frameworks II/Group Assignment/popularity.csv',index=False)
+popularity.to_csv(r'User/Path',index=False)
