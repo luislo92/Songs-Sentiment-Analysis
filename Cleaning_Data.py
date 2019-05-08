@@ -2,7 +2,7 @@ import os
 import re
 import pandas as pd
 
-os.chdir('/Users/luislosada/Columbia Drive/Frameworks II/Group Assignment')
+os.chdir('/Users/PATH')
 
 string = open("all_lyrics.txt").read()
 new_str = re.sub(r'[\(\)]', '', str(string)) #remove punctuation
